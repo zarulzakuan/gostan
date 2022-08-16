@@ -9,6 +9,21 @@ read the data stream from io.PipeReader
 
 ![gostan](./gostan.jpg "File reverse reader")
 
+## Installation
+
+```bash
+go get github.com/zarulzakuan/gostan
+```
+
+```go
+package main
+
+import (
+	"github.com/zarulzakuan/gostan"
+)
+...
+```
+
 Todo: Allow other char(s) than \n as line separator
 
 ---
