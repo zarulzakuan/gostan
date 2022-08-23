@@ -229,11 +229,7 @@ func GetBlobHeader(blobClient *azblob.BlockBlobClient, delim []byte, bufferSize 
 			fmt.Println(err.Error())
 		}
 
-		// start read from buffer
-
 		reader := bytes.NewReader(t)
-
-		// initial index always at the back of readbuffer
 
 		var delim_char byte = byte('\n')
 
