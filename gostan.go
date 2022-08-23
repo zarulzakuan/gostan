@@ -119,7 +119,7 @@ func ReverseReadFiles(out *io.PipeWriter, file_descriptors ...*os.File) {
 
 // ReverseReadBlob reads file on Azure blob storage from EOF
 func ReverseReadBlob(out *io.PipeWriter, blobClient *azblob.BlockBlobClient, bufferSize int64) {
-
+	defer out.Close()
 	prop, _ := blobClient.GetProperties(context.Background(), nil)
 
 	var offset int64 = *prop.ContentLength - bufferSize
