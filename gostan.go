@@ -25,7 +25,7 @@ func SetNewlineSeperator(sep []byte) {
 	// TODO
 }
 
-// ReadFromEnd Move file descriptor current position to the end and start reading backward
+// ReverseReadFiles reads local file(s) from EOF
 func ReverseReadFiles(out *io.PipeWriter, file_descriptors ...*os.File) {
 	delim_char := byte('\n')
 	defer out.Close()
@@ -117,12 +117,13 @@ func ReverseReadFiles(out *io.PipeWriter, file_descriptors ...*os.File) {
 	}
 }
 
-func ReverseReadBlob(out *io.PipeWriter, blobClient *azblob.BlockBlobClient) {
+// ReverseReadBlob reads file on Azure blob storage from EOF
+func ReverseReadBlob(out *io.PipeWriter, blobClient *azblob.BlockBlobClient, bufferSize int64) {
 
 	prop, _ := blobClient.GetProperties(context.Background(), nil)
 
-	var offset int64 = *prop.ContentLength - MAX_LENGTH
-	var cnt int64 = MAX_LENGTH
+	var offset int64 = *prop.ContentLength - bufferSize
+	var cnt int64 = bufferSize
 
 	tempBuffer := make([]byte, 0)   // for temp buffer, it has to be dynamic depends on the size of remainder chars to be carry forward to the next buffer window
 	outputBuffer := make([]byte, 0) // use this buffer to store 1 row at a time to be piped out to the next processor
@@ -132,12 +133,12 @@ func ReverseReadBlob(out *io.PipeWriter, blobClient *azblob.BlockBlobClient) {
 
 	for {
 		if offset < 0 {
-			if offset < -MAX_LENGTH {
+			if offset < -bufferSize {
 				out.Write(tempBuffer[0:])
 				break
 			}
 		}
-		t := make([]byte, MAX_LENGTH)
+		t := make([]byte, bufferSize)
 		err := blobClient.DownloadToBuffer(context.TODO(), offset, cnt, t, azblob.DownloadOptions{
 			// Progress: func(bytesTransferred int64) {
 			// 	// fmt.Printf("Read %d bytes.\n", bytesTransferred)
@@ -151,14 +152,14 @@ func ReverseReadBlob(out *io.PipeWriter, blobClient *azblob.BlockBlobClient) {
 
 		reader := bytes.NewReader(t)
 
-		readBufferLen := MAX_LENGTH
+		readBufferLen := bufferSize
 		// initial index always at the back of readbuffer
 		var string_start_index int64 = readBufferLen - 1
 		var string_end_index int64 = readBufferLen - 1
 		// var string_next_end_index int64 = readBufferLen - 1
 		var delim_index int64 = -1
 		for {
-			readBuffer := make([]byte, MAX_LENGTH)
+			readBuffer := make([]byte, bufferSize)
 			_, err := reader.Read(readBuffer)
 			if err != nil {
 				break
@@ -209,6 +210,66 @@ func ReverseReadBlob(out *io.PipeWriter, blobClient *azblob.BlockBlobClient) {
 				}
 			}
 		}
-		offset -= MAX_LENGTH
+		offset -= bufferSize
 	}
+}
+
+func GetBlobHeader(blobClient *azblob.BlockBlobClient, delim []byte, bufferSize int64) [][]byte {
+
+	var offset int64 = 0
+	var cnt int64 = bufferSize
+
+	tempBuffer := make([]byte, 0)   // for temp buffer, it has to be dynamic depends on the size of remainder chars to be carry forward to the next buffer window
+	outputBuffer := make([]byte, 0) // use this buffer to store 1 row at a time to be piped out to the next processor
+
+	for {
+		t := make([]byte, bufferSize)
+		err := blobClient.DownloadToBuffer(context.TODO(), offset, cnt, t, azblob.DownloadOptions{})
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+
+		// start read from buffer
+
+		reader := bytes.NewReader(t)
+
+		// initial index always at the back of readbuffer
+
+		var delim_char byte = byte('\n')
+
+		for {
+			var delim_index int64 = -1
+			readBuffer := make([]byte, bufferSize)
+			_, err := reader.Read(readBuffer)
+			if err != nil {
+				break
+			}
+
+			for i := range readBuffer {
+				scanner_index := i
+
+				// found delim
+				if readBuffer[scanner_index] == delim_char {
+					delim_index = int64(scanner_index)
+					// check if we have anything in temp buffer
+					if len(tempBuffer) > 0 {
+						// append to our output buffer
+						outputBuffer = append(outputBuffer, tempBuffer[0:]...)
+					}
+					outputBuffer = append(outputBuffer, readBuffer[0:delim_index]...)
+					return bytes.Split(outputBuffer[0:], delim)
+
+				}
+
+				// end of scan without finding anything
+				if scanner_index == len(readBuffer)-1 {
+					// save everything in temp buffer
+					tempBuffer = append(tempBuffer, readBuffer[0:]...)
+				}
+			}
+
+		}
+		offset += bufferSize
+	}
+
 }

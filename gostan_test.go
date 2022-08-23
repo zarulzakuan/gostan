@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestReadFromEnd(t *testing.T) {
+func TestReverseReadFiles(t *testing.T) {
 	control_text := `===== Second file =====
 Fifth line - this is the last line
 Fourth line -gibberish gibberish gibberish gibberish 
