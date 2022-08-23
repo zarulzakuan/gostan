@@ -39,7 +39,7 @@ First line - this is the first line
 
 	r, w := io.Pipe()
 
-	go ReadFromEnd(w, fd1, fd2)
+	go ReverseReadFiles(w, fd1, fd2)
 
 	experiment_text := ""
 	for {
