@@ -9,11 +9,13 @@
 package gostan
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 )
@@ -21,16 +23,36 @@ import (
 // Default max buffer lenght is 8kb
 const MAX_LENGTH int64 = 8192
 
+type ColumnNames []string
+
+type ReadCondition struct {
+	StopIfColValuesDiffer ColumnNames
+	StopIfRegexMatched    *regexp.Regexp
+	StopIfRegexNotMatched *regexp.Regexp // todo
+	RowLimit              int64
+	RegexFilter           *regexp.Regexp // todo
+	IncludeHeader         bool
+}
+
 func SetNewlineSeperator(sep []byte) {
 	// TODO
 }
 
 // ReverseReadFiles reads local file(s) from EOF
-func ReverseReadFiles(out *io.PipeWriter, file_descriptors ...*os.File) {
+func ReverseReadFiles(out *io.PipeWriter, readCondition *ReadCondition, file_descriptors ...*os.File) {
+	// get header if needed
+	var headers [][]byte
+	var compare string
+	if readCondition.StopIfColValuesDiffer != nil {
+		headers = GetFileHeader(file_descriptors[0], []byte{','})
+	}
+
 	delim_char := byte('\n')
+
 	defer out.Close()
-	for i, _ := range file_descriptors {
+	for i := range file_descriptors {
 		filefile_descriptor := file_descriptors[len(file_descriptors)-1-i]
+		defer filefile_descriptor.Close()
 
 		tempBuffer := make([]byte, 0)   // for temp buffer, it has to be dynamic depends on the size of remainder chars to be carry forward to the next buffer window
 		outputBuffer := make([]byte, 0) // use this buffer to store 1 row at a time to be piped out to the next processor
@@ -40,7 +62,7 @@ func ReverseReadFiles(out *io.PipeWriter, file_descriptors ...*os.File) {
 		file_pos := file_size
 
 		first_scan := true
-
+		var row_count int64 = 0
 		// start reading file a buffer at a time
 		for {
 			readBuffer := [MAX_LENGTH]byte{}
@@ -59,7 +81,9 @@ func ReverseReadFiles(out *io.PipeWriter, file_descriptors ...*os.File) {
 
 			if file_pos < 0 {
 				if file_pos < -readBufferLen {
-					out.Write(tempBuffer[0:])
+					if readCondition.IncludeHeader {
+						out.Write(tempBuffer[0:])
+					}
 					break
 				}
 				filefile_descriptor.ReadAt(readBuffer[:readBufferLen+file_pos], 0)
@@ -97,9 +121,44 @@ func ReverseReadFiles(out *io.PipeWriter, file_descriptors ...*os.File) {
 						outputBuffer = append(outputBuffer, tempBuffer[0:]...)
 						tempBuffer = tempBuffer[:0]
 					}
+
+					// CONDITION 1
+					if readCondition.StopIfColValuesDiffer != nil {
+						// if we havent store the mapped string, store it. Else, compare
+						if len(compare) == 0 {
+							mapped_string := stringToMap(string(outputBuffer[0:]), headers)
+							for _, colName := range readCondition.StopIfColValuesDiffer {
+								compare += mapped_string[colName].(string)
+							}
+						} else {
+							mapped_string := stringToMap(string(outputBuffer[0:]), headers)
+							compare2 := ""
+							for _, colName := range readCondition.StopIfColValuesDiffer {
+								compare2 += mapped_string[colName].(string)
+							}
+							if compare2 != compare {
+								return
+							}
+						}
+
+					}
+
+					// CONDITION 2
+					if readCondition.StopIfRegexMatched != nil && readCondition.StopIfRegexMatched.MatchString(string(outputBuffer[0:])) {
+						return
+					}
+
+					// CONDITION 3
+					if readCondition.RowLimit > 0 && readCondition.RowLimit == row_count {
+						return
+					}
+
+					// write it out
 					out.Write(outputBuffer[0:])
+
 					outputBuffer = outputBuffer[:0]
 					string_end_index = delim_index
+					row_count++
 				}
 
 				// end of scan without finding anything
@@ -118,7 +177,13 @@ func ReverseReadFiles(out *io.PipeWriter, file_descriptors ...*os.File) {
 }
 
 // ReverseReadBlob reads file on Azure blob storage from EOF
-func ReverseReadBlob(out *io.PipeWriter, blobClient *azblob.BlockBlobClient, bufferSize int64) {
+func ReverseReadBlob(out *io.PipeWriter, blobClient *azblob.BlockBlobClient, bufferSize int64, readCondition *ReadCondition) {
+	// get header if needed
+	var headers [][]byte
+	var compare string
+	if readCondition.StopIfColValuesDiffer != nil {
+		headers = GetBlobHeader(blobClient, []byte{','}, 1024)
+	}
 	defer out.Close()
 	prop, _ := blobClient.GetProperties(context.Background(), nil)
 
@@ -131,10 +196,14 @@ func ReverseReadBlob(out *io.PipeWriter, blobClient *azblob.BlockBlobClient, buf
 
 	var delim_char byte = byte('\n')
 
+	var row_count int64 = 0
+
 	for {
 		if offset < 0 {
 			if offset < -bufferSize {
-				out.Write(tempBuffer[0:])
+				if readCondition.IncludeHeader {
+					out.Write(tempBuffer[0:])
+				}
 				break
 			}
 		}
@@ -195,10 +264,43 @@ func ReverseReadBlob(out *io.PipeWriter, blobClient *azblob.BlockBlobClient, buf
 						outputBuffer = append(outputBuffer, tempBuffer[0:]...)
 						tempBuffer = tempBuffer[:0]
 					}
+					// CONDITION 1
+					if readCondition.StopIfColValuesDiffer != nil {
+						// if we havent store the mapped string, store it. Else, compare
+						if len(compare) == 0 {
+							mapped_string := stringToMap(string(outputBuffer[0:]), headers)
+							for _, colName := range readCondition.StopIfColValuesDiffer {
+								compare += mapped_string[colName].(string)
+							}
+						} else {
+							mapped_string := stringToMap(string(outputBuffer[0:]), headers)
+							compare2 := ""
+							for _, colName := range readCondition.StopIfColValuesDiffer {
+								compare2 += mapped_string[colName].(string)
+							}
+							if compare2 != compare {
+								return
+							}
+						}
+
+					}
+
+					// CONDITION 2
+					if readCondition.StopIfRegexMatched != nil && readCondition.StopIfRegexMatched.MatchString(string(outputBuffer[0:])) {
+						return
+					}
+
+					// CONDITION 3
+					if readCondition.RowLimit > 0 && readCondition.RowLimit == row_count {
+						return
+					}
+
+					// write it out
 					out.Write(outputBuffer[0:])
 
 					outputBuffer = outputBuffer[:0]
 					string_end_index = delim_index
+					row_count++
 				}
 
 				// end of scan without finding anything
@@ -214,6 +316,7 @@ func ReverseReadBlob(out *io.PipeWriter, blobClient *azblob.BlockBlobClient, buf
 	}
 }
 
+// GetBlobHeader reads the first line of the Azure blob
 func GetBlobHeader(blobClient *azblob.BlockBlobClient, delim []byte, bufferSize int64) [][]byte {
 
 	var offset int64 = 0
@@ -267,5 +370,17 @@ func GetBlobHeader(blobClient *azblob.BlockBlobClient, delim []byte, bufferSize 
 		}
 		offset += bufferSize
 	}
+
+}
+
+// GetFileHeader reads the first line of the file
+func GetFileHeader(fd *os.File, delim []byte) [][]byte {
+	defer fd.Close()
+	scanner := bufio.NewScanner(fd)
+	if scanner.Scan() {
+		b := scanner.Bytes()
+		return bytes.Split(b, delim)
+	}
+	return nil
 
 }

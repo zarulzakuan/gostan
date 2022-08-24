@@ -8,20 +8,26 @@ import (
 )
 
 func TestReverseReadFiles(t *testing.T) {
-	control_text := `===== Second file =====
-Fifth line - this is the last line
-Fourth line -gibberish gibberish gibberish gibberish 
-Third line -gibberish 
-Second line - gibberish gibberish 
-First line - this is the first line
-===== Second file =====
-===== First file =====
-Fifth line - this is the last line
-Fourth line -gibberish gibberish gibberish gibberish 
-Third line -gibberish 
-Second line - gibberish gibberish 
-First line - this is the first line
-===== First file =====
+	control_text := `10,8/25/2022,Truelove
+9,8/25/2022,Druery
+8,8/25/2022,Laux
+7,8/25/2022,Arghent
+6,8/25/2022,Monketon
+5,8/25/2022,Tabourin
+4,8/25/2022,Dowty
+3,8/25/2022,Canet
+2,8/25/2022,Withur
+1,8/25/2022,Schoenleiter
+10,8/24/2022,Dagon
+9,8/24/2022,Welfare
+8,8/24/2022,Tunsley
+7,8/24/2022,Jacmard
+6,8/24/2022,Cutler
+5,8/24/2022,Chaucer
+4,8/24/2022,Bellord
+3,8/24/2022,Darinton
+2,8/24/2022,Limeburn
+1,8/24/2022,Rainger
 `
 	filename1 := "./mockfile1"
 	fd1, err := os.Open(filename1)
@@ -39,7 +45,7 @@ First line - this is the first line
 
 	r, w := io.Pipe()
 
-	go ReverseReadFiles(w, fd1, fd2)
+	go ReverseReadFiles(w, &ReadCondition{IncludeHeader: false}, fd1, fd2)
 
 	experiment_text := ""
 	for {
