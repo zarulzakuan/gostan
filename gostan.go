@@ -194,7 +194,7 @@ func ReverseReadBlob(out *io.PipeWriter, blobClient *azblob.BlockBlobClient, buf
 	prop, _ := blobClient.GetProperties(context.Background(), nil)
 
 	getSizeAttemptCount := 0
-	for *prop.ContentLength <= 0 && getSizeAttemptCount > 6 {
+	for *prop.ContentLength <= 0 && getSizeAttemptCount < 60 {
 		getSizeAttemptCount++
 		fmt.Println("File size cannot be 0. Retry attempt:", getSizeAttemptCount)
 		prop, _ = blobClient.GetProperties(context.Background(), nil)
@@ -308,6 +308,7 @@ func ReverseReadBlob(out *io.PipeWriter, blobClient *azblob.BlockBlobClient, buf
 								}
 							}
 							if compare2 != compare {
+								println(compare2, "-", compare)
 								return
 							}
 						}
