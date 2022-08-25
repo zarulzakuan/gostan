@@ -147,7 +147,7 @@ func TestReverseReadBlobStopColDiff(t *testing.T) {
 	}
 	r, w := io.Pipe()
 
-	go ReverseReadBlob(w, blobClient, MAX_LENGTH, &ReadCondition{IncludeHeader: true, StopIfColValuesDiffer: ColumnNames{"date"}})
+	go ReverseReadBlob(w, blobClient, MAX_LENGTH, &ReadCondition{IncludeHeader: true, StopIfColValuesDiffer: ColumnNames{"Date"}})
 
 	experiment_text := ""
 	for {

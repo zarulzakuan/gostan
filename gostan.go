@@ -279,7 +279,9 @@ func ReverseReadBlob(out *io.PipeWriter, blobClient *azblob.BlockBlobClient, buf
 						if len(compare) == 0 {
 							mapped_string := stringToMap(string(outputBuffer[0:]), headers)
 							for _, colName := range readCondition.StopIfColValuesDiffer {
-								compare += mapped_string[colName].(string)
+								if mapped_string[colName] != nil {
+									compare += mapped_string[colName].(string)
+								}
 							}
 						} else {
 							mapped_string := stringToMap(string(outputBuffer[0:]), headers)
