@@ -40,15 +40,19 @@ func SetNewlineSeperator(sep []byte) {
 
 // ReverseReadFiles reads local file(s) from EOF
 func ReverseReadFiles(out *io.PipeWriter, readCondition *ReadCondition, file_descriptors ...*os.File) {
+	delim_char := byte('\n')
 	// get header if needed
 	var headers [][]byte
 	var compare string
-	if readCondition.StopIfColValuesDiffer != nil {
+	if readCondition.StopIfColValuesDiffer != nil || readCondition.IncludeHeader {
 		headers = GetFileHeader(file_descriptors[0], []byte{','})
 	}
+	if readCondition.IncludeHeader {
+		out.Write(bytes.Join(headers, []byte{','}))
+		out.Write([]byte{delim_char})
 
-	delim_char := byte('\n')
-
+	}
+	var row_count int64 = 0
 	defer out.Close()
 	for i := range file_descriptors {
 		filefile_descriptor := file_descriptors[len(file_descriptors)-1-i]
@@ -62,7 +66,7 @@ func ReverseReadFiles(out *io.PipeWriter, readCondition *ReadCondition, file_des
 		file_pos := file_size
 
 		first_scan := true
-		var row_count int64 = 0
+
 		// start reading file a buffer at a time
 		for {
 			readBuffer := [MAX_LENGTH]byte{}
@@ -81,7 +85,9 @@ func ReverseReadFiles(out *io.PipeWriter, readCondition *ReadCondition, file_des
 
 			if file_pos < 0 {
 				if file_pos < -readBufferLen {
-					if readCondition.IncludeHeader {
+
+					// to include header, we assume the header is the last output. so only show the last output if there's no header
+					if !readCondition.IncludeHeader {
 						out.Write(tempBuffer[0:])
 					}
 					break
@@ -178,12 +184,19 @@ func ReverseReadFiles(out *io.PipeWriter, readCondition *ReadCondition, file_des
 
 // ReverseReadBlob reads file on Azure blob storage from EOF
 func ReverseReadBlob(out *io.PipeWriter, blobClient *azblob.BlockBlobClient, bufferSize int64, readCondition *ReadCondition) {
+	delim_char := byte('\n')
 	// get header if needed
 	var headers [][]byte
 	var compare string
-	if readCondition.StopIfColValuesDiffer != nil {
+	if readCondition.StopIfColValuesDiffer != nil || readCondition.IncludeHeader {
 		headers = GetBlobHeader(blobClient, []byte{','}, 1024)
 	}
+	if readCondition.IncludeHeader {
+		out.Write(bytes.Join(headers, []byte{','}))
+		out.Write([]byte{delim_char})
+
+	}
+	var row_count int64 = 0
 	defer out.Close()
 	prop, _ := blobClient.GetProperties(context.Background(), nil)
 
@@ -194,14 +207,10 @@ func ReverseReadBlob(out *io.PipeWriter, blobClient *azblob.BlockBlobClient, buf
 	outputBuffer := make([]byte, 0) // use this buffer to store 1 row at a time to be piped out to the next processor
 	first_scan := true
 
-	var delim_char byte = byte('\n')
-
-	var row_count int64 = 0
-
 	for {
 		if offset < 0 {
 			if offset < -bufferSize {
-				if readCondition.IncludeHeader {
+				if !readCondition.IncludeHeader {
 					out.Write(tempBuffer[0:])
 				}
 				break
@@ -375,7 +384,6 @@ func GetBlobHeader(blobClient *azblob.BlockBlobClient, delim []byte, bufferSize 
 
 // GetFileHeader reads the first line of the file
 func GetFileHeader(fd *os.File, delim []byte) [][]byte {
-	defer fd.Close()
 	scanner := bufio.NewScanner(fd)
 	if scanner.Scan() {
 		b := scanner.Bytes()
