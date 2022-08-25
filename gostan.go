@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 )
@@ -184,6 +185,18 @@ func ReverseReadFiles(out *io.PipeWriter, readCondition *ReadCondition, file_des
 
 // ReverseReadBlob reads file on Azure blob storage from EOF
 func ReverseReadBlob(out *io.PipeWriter, blobClient *azblob.BlockBlobClient, bufferSize int64, readCondition *ReadCondition) {
+
+	// check the file first see if it's not empty (or still empty)
+	prop, _ := blobClient.GetProperties(context.Background(), nil)
+
+	getSizeAttemptCount := 0
+	for *prop.ContentLength <= 0 && getSizeAttemptCount > 6 {
+		getSizeAttemptCount++
+		fmt.Println("File size cannot be 0. Retry attempt:", getSizeAttemptCount)
+		prop, _ = blobClient.GetProperties(context.Background(), nil)
+		time.Sleep(5 * time.Second)
+	}
+
 	delim_char := byte('\n')
 	// get header if needed
 	var headers [][]byte
@@ -198,7 +211,6 @@ func ReverseReadBlob(out *io.PipeWriter, blobClient *azblob.BlockBlobClient, buf
 	}
 	var row_count int64 = 0
 	defer out.Close()
-	prop, _ := blobClient.GetProperties(context.Background(), nil)
 
 	var offset int64 = *prop.ContentLength - bufferSize
 	var cnt int64 = bufferSize
